@@ -1,14 +1,24 @@
-from fastapi import FastAPI,HTTPException
+from fastapi import FastAPI,HTTPException, Depends, Request, status
 import subprocess
 from pydantic import BaseModel
 import requests
 import base64
 import dotenv
 import os
+import secrets
+from fastapi.security import HTTPBasic, HTTPBasicCredentials
+
+
 
 dotenv.load_dotenv()
 
 app = FastAPI()
+security = HTTPBasic()
+
+# Hardcoded credentials
+USERNAME = "admin"
+PASSWORD = "secret123"
+
 
 FLOW_SERVICE_URL = os.getenv("FLOW_SERVICE_URL")
 USERNAME = os.getenv("USERNAME") 
@@ -75,3 +85,33 @@ def create_sales_order(order: SalesOrderRequest):
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+def get_current_user(credentials: HTTPBasicCredentials = Depends(security)):
+    correct_username = secrets.compare_digest(credentials.username, USERNAME)
+    correct_password = secrets.compare_digest(credentials.password, PASSWORD)
+    if not (correct_username and correct_password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication credentials",
+            headers={"WWW-Authenticate": "Basic"},
+        )
+    return credentials.username
+
+
+@app.post("/process")
+async def process_data(
+    request: Request,
+    dir: str,  # query param: ?dir=I
+    username: str = Depends(get_current_user),
+):
+    # Read raw plain text from body
+    body_text = await request.body()
+    body_text = body_text.decode("utf-8")
+
+    return {
+        "authenticated_user": username,
+        "dir_param": dir,
+        "received_text": body_text,
+    }
